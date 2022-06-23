@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+
+  test:
+    name: Test suite
+    # List of supported runners:
+    # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners
+    runs-on: ubuntu-18.04
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Prepare environment
+        run: |
+
+          # Pre-build container images
+
+          docker compose -f docker-compose.yml build
+
+      - name: Set password of every built-in user to 'testpasswd'
+        run: |
+
+          sed -i -e 's/\(ELASTIC_PASSWORD=\)'\''changeme'\''/\1testpasswd/g' \
+                 -e 's/\(LOGSTASH_INTERNAL_PASSWORD=\)'\''changeme'\''/\1testpasswd/g' \
+                 -e 's/\(KIBANA_SYSTEM_PASSWORD=\)'\''changeme'\''/\1testpasswd/g' .env
+
+      - name:  Run the stack
+        run: docker compose up -d
+
+      - name: Execute core test suite
+        run: .github/workflows/scripts/run-tests-core.sh
+
+      - name: 'debug: Display state and logs (core)'
+        # https://docs.github.com/en/free-pro-team@latest/actions/reference/workflow-syntax-for-github-actions#jobsjob_idif
+        # https://docs.github.com/en/free-pro-team@latest/actions/reference/context-and-expression-syntax-for-github-actions#job-status-check-functions
+        if: always()
+        run: |
+          docker compose ps
+          docker compose logs setup
+          docker compose logs elasticsearch
+          docker compose logs kibana
+
+      - name: Terminate all components
+        if: always()
+        run: >-
+          docker compose
+          -f docker-compose.yml
+          down -v
